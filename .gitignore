@@ -1,0 +1,12 @@
+# local runtime state
+dsh-web.log
+
+# build dependency (auto-downloaded by build.ps1, ~25MB extracted)
+webview2-sdk/
+
+# WebView2 user data (normally lives in %LOCALAPPDATA% anyway)
+app/*.WebView2/
+
+# windows junk
+Thumbs.db
+Desktop.ini
