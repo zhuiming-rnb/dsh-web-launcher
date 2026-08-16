@@ -90,10 +90,12 @@ namespace DSHWeb
                 if (hwnd != IntPtr.Zero)
                 {
                     ShowWindow(hwnd, 9); // SW_RESTORE: show if hidden, restore if minimized
-                    // Bring to the top of the z-order without activating - works
-                    // even when another window (e.g. the browser) is foreground,
-                    // which would otherwise block SetForegroundWindow.
-                    SetWindowPos(hwnd, new IntPtr(-1), 0, 0, 0, 0,
+                    // Raise to the top of the NORMAL z-order without activating
+                    // (HWND_TOP = 0; NOT HWND_TOPMOST, which would pin the window
+                    // on top of every other window). Works even when another
+                    // window (e.g. the browser) is foreground, which would
+                    // otherwise block SetForegroundWindow.
+                    SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0,
                         0x0001 | 0x0002 | 0x0010); // NOSIZE | NOMOVE | NOACTIVATE
                     // Attach input queues so SetForegroundWindow is not blocked
                     // by the foreground lock (background process rule).
