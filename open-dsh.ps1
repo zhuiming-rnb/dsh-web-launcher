@@ -1,4 +1,4 @@
-# Desktop-shortcut target: make sure the local DSH web server is up (starting
+﻿# Desktop-shortcut target: make sure the local DSH web server is up (starting
 # it detached if needed), then open http://127.0.0.1:3080/ in the default
 # browser. Runs hidden; a small popup reports failure instead of a console.
 param([switch]$NoOpen)
@@ -38,7 +38,7 @@ if ($listener) {
         Start-Process $url
       }
     }
-    "opened $url at $(Get-Date -Format o)" | Out-File -FilePath $log -Append
+    "opened $url at $(Get-Date -Format o)" | Out-File -FilePath $log -Append -Encoding utf8
   }
   exit 0
 }

@@ -35,7 +35,7 @@ if (-not (Test-Path $coreDll)) {
 Stop-Process -Name 'DSH-Web' -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 2
 $sdk = Join-Path $root 'webview2-sdk\pkg'
-& 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe' /nologo /target:winexe /platform:x64 /optimize+ `
+& 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe' /nologo /target:winexe /platform:x64 /optimize+ /codepage:65001 `
   /out:"$out\DSH-Web.exe" `
   /win32icon:"$root\dsh.ico" `
   /win32manifest:"$out\app.manifest" `

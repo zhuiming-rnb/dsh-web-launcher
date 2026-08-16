@@ -19,6 +19,12 @@
 | 🔒 关窗口不关服务 | dsh 为独立分离进程，关掉应用窗口服务照跑，随时秒开 |
 | 🚀 开机自启 | 计划任务 `DSH-Web`（登录时静默拉起服务，隐藏窗口） |
 | 🎯 独立任务栏身份 | AUMID `DeepSeekHarness.Desktop`，不与 Edge 等混在一起 |
+| 1️⃣ 单实例 | 重复打开只聚焦已有窗口，不重复开进程 |
+| 📌 托盘常驻 | 最小化/关闭 → 缩到托盘（气球提示），托盘菜单：显示/隐藏、重新连接、重启服务、退出 |
+| 🏷️ 标题跟随会话 | 窗口标题跟随 DSH 页面标题（当前会话名 — DeepSeek Harness） |
+| ❤️ 健康监测 | 每 5s 探测 3080；服务断开 → 显示"已断开"面板（重新连接/重启服务/退出），恢复后自动刷新 |
+| 🗺️ 路径自适应 | node/dsh 自动从 PATH、npx 缓存、全局安装解析，无硬编码路径；支持 `DSH_BIN`/`DSH_WORKSPACE` 环境变量覆盖 |
+| 📝 应用日志 | 启动/加载/健康事件写入 `dsh-web.log`（与应用同目录） |
 
 ## 架构
 
@@ -112,20 +118,26 @@ powershell -NoProfile -ExecutionPolicy Bypass -File E:\workplace\DSH-Web\build.p
 
 ## 移植到其他机器
 
-脚本全部基于 `$PSScriptRoot`/环境变量，仓库放哪都行。需要按机器调整的只有 `app\DSH-Web.cs` 里的两处硬编码：
+脚本全部基于 `$PSScriptRoot`/环境变量，仓库放哪都行。`DSH-Web.exe` 不再有硬编码路径，启动时自动解析：
 
-| 位置 | 说明 |
+| 解析目标 | 查找顺序 |
 | --- | --- |
-| `StartServerIfNeeded()` 中的 `node` 路径 | 默认 `D:\Program Files\nodejs\node.exe`，改成你机器的 Node 路径（或把 `FileName` 改成 `"node"` 走 PATH） |
-| `StartServerIfNeeded()` 中的 `WorkingDirectory` | 默认 `E:\workplace`，改成你的工作区路径 |
-| `dshBin`（脚本和 exe 内） | 默认指向 `%LOCALAPPDATA%\npm-cache\_npx\<hash>\...`，`<hash>` 随 npx 安装位置变化；装了 dsh 的机器路径不同时改这里 |
+| node | PATH 中的 `node` → 常见安装目录（Program Files / npm 目录） |
+| dsh (bin.js) | 环境变量 `DSH_BIN` → `%LOCALAPPDATA%\npm-cache\_npx\*`（自动匹配任意 npx 缓存哈希）→ 全局 npm 安装 |
+| 工作目录 | 环境变量 `DSH_WORKSPACE` → 用户主目录 |
 
-改完跑 `build.ps1` 重建即可。
+如需覆盖，设置环境变量即可，无需改代码：
+```powershell
+$env:DSH_BIN = "D:\path\to\dsh\lib\bin.js"   # 自定义 dsh 入口
+$env:DSH_WORKSPACE = "D:\work"               # 自定义服务工作目录
+```
 
 ## 常见问题
 
 | 问题 | 解决 |
 | --- | --- |
+| 点关闭窗口没退出？ | 设计如此：关闭/最小化会缩到托盘（服务继续运行），托盘菜单"退出"才是真正退出 |
+| 日志在哪 | `dsh-web.log`（仓库根目录，应用与脚本共用；UTF-8） |
 | 桌面快捷方式图标不变 | Explorer 按路径缓存图标：改图标后若没刷新，右键桌面→刷新，或重启资源管理器 |
 | 之前有 cmd 闪窗 | 已修复：快捷方式直接指向 exe（无 powershell）；若仍见旧行为，确认快捷方式 Target 是 `DSH-Web.exe` |
 | 画面模糊 | PerMonitorV2 已内嵌；若仍模糊，确认没有旧版 exe 在运行 |
