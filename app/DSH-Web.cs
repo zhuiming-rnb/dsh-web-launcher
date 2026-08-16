@@ -27,6 +27,20 @@ namespace DSHWeb
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         private static extern bool SetForegroundWindow(IntPtr hWnd);
 
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        private static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder lpClassName, int nMaxCount);
+
+        private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
         private static readonly IntPtr DpiAwarenessPerMonitorV2 = new IntPtr(-4);
 
         [STAThread]
@@ -36,26 +50,60 @@ namespace DSHWeb
             try { SetProcessDpiAwarenessContext(DpiAwarenessPerMonitorV2); } catch { }
             try { SetCurrentProcessExplicitAppUserModelID("DeepSeekHarness.Desktop"); } catch { }
 
-            // Single instance: a second launch focuses the existing window.
+            // Single instance: a second launch shows/activates the existing
+            // window (works even when it is hidden in the tray).
             bool createdNew;
             using (var mutex = new Mutex(true, @"Local\DSHWebLauncher.SingleInstance", out createdNew))
             {
                 if (!createdNew)
                 {
-                    foreach (var p in Process.GetProcessesByName("DSH-Web"))
-                    {
-                        if (p.MainWindowHandle != IntPtr.Zero)
-                        {
-                            try { SetForegroundWindow(p.MainWindowHandle); } catch { }
-                            break;
-                        }
-                    }
+                    FocusExisting();
                     return;
                 }
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
                 Application.Run(new MainForm());
             }
+        }
+
+        /// <summary>Show + activate the already-running instance's window.</summary>
+        private static void FocusExisting()
+        {
+            var self = Process.GetCurrentProcess().Id;
+            foreach (var p in Process.GetProcessesByName("DSH-Web"))
+            {
+                if (p.Id == self) continue;
+                var hwnd = FindFirstTopWindow(p.Id);
+                if (hwnd != IntPtr.Zero)
+                {
+                    ShowWindow(hwnd, 9); // SW_RESTORE: show if hidden, restore if minimized
+                    try { SetForegroundWindow(hwnd); } catch { }
+                    break;
+                }
+            }
+        }
+
+        /// <summary>Find the running instance's main WinForms window (even if hidden).</summary>
+        private static IntPtr FindFirstTopWindow(int pid)
+        {
+            IntPtr found = IntPtr.Zero;
+            EnumWindows(delegate(IntPtr hWnd, IntPtr lParam)
+            {
+                uint windowPid;
+                GetWindowThreadProcessId(hWnd, out windowPid);
+                if (windowPid == (uint)pid)
+                {
+                    var sb = new System.Text.StringBuilder(256);
+                    GetClassName(hWnd, sb, 256);
+                    if (sb.ToString().StartsWith("WindowsForms10.Window", StringComparison.Ordinal))
+                    {
+                        found = hWnd;
+                        return false; // stop enumerating
+                    }
+                }
+                return true;
+            }, IntPtr.Zero);
+            return found;
         }
     }
 
@@ -176,7 +224,6 @@ namespace DSHWeb
         private System.Windows.Forms.Timer _healthTimer;
         private bool _serverWasUp = true;
         private bool _quitting;
-        private bool _trayHintShown;
 
         public MainForm()
         {
@@ -264,11 +311,6 @@ namespace DSHWeb
             if (_tray != null && WindowState == FormWindowState.Minimized)
             {
                 Hide();
-                if (!_trayHintShown)
-                {
-                    _trayHintShown = true;
-                    try { _tray.ShowBalloonTip(2500, "DeepSeek Harness", "已最小化到托盘，双击图标恢复。", ToolTipIcon.Info); } catch { }
-                }
             }
         }
 
@@ -286,11 +328,6 @@ namespace DSHWeb
             // Close hides to tray (the detached dsh server keeps running).
             e.Cancel = true;
             Hide();
-            if (!_trayHintShown)
-            {
-                _trayHintShown = true;
-                try { _tray.ShowBalloonTip(2500, "DeepSeek Harness", "已最小化到托盘，双击图标恢复。", ToolTipIcon.Info); } catch { }
-            }
         }
 
         private void SetupTray()
