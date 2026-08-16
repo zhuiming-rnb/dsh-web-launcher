@@ -217,35 +217,20 @@ namespace DSHWeb
         private const int Port = 3080;
         private static readonly string Url = "http://127.0.0.1:3080/";
 
-        // Custom title bar (Doubao-style): a slim white strip with only the
-        // three window controls on the right, separated from the page by a
-        // light gray divider line.
+        // Custom title bar (Doubao-style): a slim strip with only the three
+        // window controls on the right, visually distinct from the page below.
         private const int TitleBarHeight = 40;
-        private static readonly Color StripBg = Color.White;
-        private static readonly Color StripDivider = Color.FromArgb(225, 225, 225); // light gray line
-        private static readonly Color BtnHoverBg = Color.FromArgb(240, 240, 240);
+        private static readonly Color StripBg = Color.FromArgb(15, 18, 24);        // slightly lighter than the page
+        private static readonly Color StripDivider = Color.FromArgb(35, 42, 54);  // 1px separator line
+        private static readonly Color BtnHoverBg = Color.FromArgb(35, 42, 54);
         private static readonly Color BtnCloseBg = Color.FromArgb(232, 17, 35);
-        private static readonly Color BtnFg = Color.FromArgb(95, 95, 95);
+        private static readonly Color BtnFg = Color.FromArgb(160, 170, 185);
 
         private const int WM_NCHITTEST = 0x0084;
-        private const int WM_GETMINMAXINFO = 0x0024;
         private const int HTCLIENT = 1, HTCAPTION = 2;
         private const int HTLEFT = 10, HTRIGHT = 11, HTTOP = 12, HTTOPLEFT = 13, HTTOPRIGHT = 14;
         private const int HTBOTTOM = 15, HTBOTTOMLEFT = 16, HTBOTTOMRIGHT = 17;
         private const int ResizeEdge = 6;
-
-        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
-        private struct NativePoint { public int X; public int Y; }
-
-        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
-        private struct MinMaxInfo
-        {
-            public NativePoint ptReserved;
-            public NativePoint ptMaxSize;
-            public NativePoint ptMaxPosition;
-            public NativePoint ptMinTrackSize;
-            public NativePoint ptMaxTrackSize;
-        }
 
         [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
         private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
@@ -302,14 +287,7 @@ namespace DSHWeb
             Shown += delegate { BootstrapAsync(); };
             FormClosing += OnFormClosing;
             Load += delegate { RestoreWindowState(); };
-            Paint += delegate(object s, PaintEventArgs e)
-            {
-                // 1px light gray divider under the white strip.
-                using (var pen = new Pen(StripDivider))
-                {
-                    e.Graphics.DrawLine(pen, 0, TitleBarHeight, ClientSize.Width, TitleBarHeight);
-                }
-            };
+            Paint += delegate { PaintStripDivider(); };
         }
 
         /// <summary>The three window controls in the top-right of the strip.</summary>
@@ -320,10 +298,7 @@ namespace DSHWeb
             _btnMax = MakeTitleButton("□", delegate { ToggleMaximize(); });
             _btnClose = MakeTitleButton("✕", delegate { Close(); });
             _btnClose.FlatAppearance.MouseOverBackColor = BtnCloseBg;
-            _btnClose.ForeColor = Color.FromArgb(95, 95, 95);
-            // White X on the red hover (this WinForms has no MouseOverForeColor).
-            _btnClose.MouseEnter += delegate { _btnClose.ForeColor = Color.White; };
-            _btnClose.MouseLeave += delegate { _btnClose.ForeColor = Color.FromArgb(95, 95, 95); };
+            _btnClose.ForeColor = Color.FromArgb(200, 210, 225);
             Controls.Add(_btnMin);
             Controls.Add(_btnMax);
             Controls.Add(_btnClose);
@@ -338,14 +313,13 @@ namespace DSHWeb
                 Width = 46,
                 Height = TitleBarHeight,
                 FlatStyle = FlatStyle.Flat,
-                BackColor = StripBg,
                 ForeColor = BtnFg,
                 Font = new Font("Segoe UI Symbol", 11f),
                 TabStop = false
             };
             b.FlatAppearance.BorderSize = 0;
             b.FlatAppearance.MouseOverBackColor = BtnHoverBg;
-            b.FlatAppearance.MouseDownBackColor = Color.FromArgb(226, 226, 226);
+            b.FlatAppearance.MouseDownBackColor = Color.FromArgb(48, 56, 70);
             b.Click += onClick;
             return b;
         }
@@ -362,6 +336,18 @@ namespace DSHWeb
             WindowState = WindowState == FormWindowState.Maximized
                 ? FormWindowState.Normal
                 : FormWindowState.Maximized;
+        }
+
+        /// <summary>1px separator under the strip so it reads as a distinct top row.</summary>
+        private void PaintStripDivider()
+        {
+            using (var pen = new Pen(StripDivider))
+            {
+                using (var g = CreateGraphics())
+                {
+                    g.DrawLine(pen, 0, TitleBarHeight, ClientSize.Width, TitleBarHeight);
+                }
+            }
         }
 
         private static Button MakeButton(string text, EventHandler onClick)
@@ -434,28 +420,9 @@ namespace DSHWeb
             }
         }
 
-        /// <summary>Frameless window: drag from the strip, resize at the edges,
-        /// and maximize to the working area so the taskbar stays visible.</summary>
+        /// <summary>Frameless window: drag from the strip, resize at the edges.</summary>
         protected override void WndProc(ref Message m)
         {
-            if (m.Msg == WM_GETMINMAXINFO)
-            {
-                base.WndProc(ref m);
-                try
-                {
-                    var mmi = (MinMaxInfo)System.Runtime.InteropServices.Marshal.PtrToStructure(
-                        m.LParam, typeof(MinMaxInfo));
-                    var wa = Screen.FromHandle(Handle).WorkingArea;
-                    mmi.ptMaxPosition.X = wa.X;
-                    mmi.ptMaxPosition.Y = wa.Y;
-                    mmi.ptMaxSize.X = wa.Width;
-                    mmi.ptMaxSize.Y = wa.Height;
-                    System.Runtime.InteropServices.Marshal.StructureToPtr(mmi, m.LParam, false);
-                }
-                catch { }
-                return;
-            }
-
             if (m.Msg == WM_NCHITTEST)
             {
                 int x = (short)(m.LParam.ToInt32() & 0xFFFF);
