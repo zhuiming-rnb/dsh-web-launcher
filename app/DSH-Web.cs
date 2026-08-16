@@ -217,9 +217,28 @@ namespace DSHWeb
         private const int Port = 3080;
         private static readonly string Url = "http://127.0.0.1:3080/";
 
+        // Custom title bar (Doubao-style): a slim strip with only the three
+        // window controls on the right, visually distinct from the page below.
+        private const int TitleBarHeight = 40;
+        private static readonly Color StripBg = Color.FromArgb(15, 18, 24);        // slightly lighter than the page
+        private static readonly Color StripDivider = Color.FromArgb(35, 42, 54);  // 1px separator line
+        private static readonly Color BtnHoverBg = Color.FromArgb(35, 42, 54);
+        private static readonly Color BtnCloseBg = Color.FromArgb(232, 17, 35);
+        private static readonly Color BtnFg = Color.FromArgb(160, 170, 185);
+
+        private const int WM_NCHITTEST = 0x0084;
+        private const int HTCLIENT = 1, HTCAPTION = 2;
+        private const int HTLEFT = 10, HTRIGHT = 11, HTTOP = 12, HTTOPLEFT = 13, HTTOPRIGHT = 14;
+        private const int HTBOTTOM = 15, HTBOTTOMLEFT = 16, HTBOTTOMRIGHT = 17;
+        private const int ResizeEdge = 6;
+
+        [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
+        private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
+
         private WebView2 _web;
         private Label _status;
         private Button _btnRetry, _btnRestart, _btnExit;
+        private Button _btnMin, _btnMax, _btnClose;
         private NotifyIcon _tray;
         private System.Windows.Forms.Timer _healthTimer;
         private bool _serverWasUp = true;
@@ -233,6 +252,12 @@ namespace DSHWeb
             MinimumSize = new Size(960, 640);
             StartPosition = FormStartPosition.CenterScreen;
             try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
+
+            // Frameless window: the top strip is drawn by the form itself.
+            FormBorderStyle = FormBorderStyle.None;
+            BackColor = StripBg;
+            Padding = new Padding(0, TitleBarHeight, 0, 0);
+            DoubleBuffered = true;
 
             _status = new Label
             {
@@ -256,11 +281,73 @@ namespace DSHWeb
             _web = new WebView2 { Dock = DockStyle.Fill, Visible = false };
             Controls.Add(_web);
 
+            SetupTitleBar();
             SetupTray();
 
             Shown += delegate { BootstrapAsync(); };
             FormClosing += OnFormClosing;
             Load += delegate { RestoreWindowState(); };
+            Paint += delegate { PaintStripDivider(); };
+        }
+
+        /// <summary>The three window controls in the top-right of the strip.</summary>
+        private void SetupTitleBar()
+        {
+            int w = 46, h = TitleBarHeight;
+            _btnMin = MakeTitleButton("─", delegate { WindowState = FormWindowState.Minimized; });
+            _btnMax = MakeTitleButton("□", delegate { ToggleMaximize(); });
+            _btnClose = MakeTitleButton("✕", delegate { Close(); });
+            _btnClose.FlatAppearance.MouseOverBackColor = BtnCloseBg;
+            _btnClose.ForeColor = Color.FromArgb(200, 210, 225);
+            Controls.Add(_btnMin);
+            Controls.Add(_btnMax);
+            Controls.Add(_btnClose);
+            LayoutTitleButtons(w, h);
+        }
+
+        private static Button MakeTitleButton(string glyph, EventHandler onClick)
+        {
+            var b = new Button
+            {
+                Text = glyph,
+                Width = 46,
+                Height = TitleBarHeight,
+                FlatStyle = FlatStyle.Flat,
+                ForeColor = BtnFg,
+                Font = new Font("Segoe UI Symbol", 11f),
+                TabStop = false
+            };
+            b.FlatAppearance.BorderSize = 0;
+            b.FlatAppearance.MouseOverBackColor = BtnHoverBg;
+            b.FlatAppearance.MouseDownBackColor = Color.FromArgb(48, 56, 70);
+            b.Click += onClick;
+            return b;
+        }
+
+        private void LayoutTitleButtons(int w, int h)
+        {
+            _btnClose.SetBounds(ClientSize.Width - w, 0, w, h);
+            _btnMax.SetBounds(ClientSize.Width - 2 * w, 0, w, h);
+            _btnMin.SetBounds(ClientSize.Width - 3 * w, 0, w, h);
+        }
+
+        private void ToggleMaximize()
+        {
+            WindowState = WindowState == FormWindowState.Maximized
+                ? FormWindowState.Normal
+                : FormWindowState.Maximized;
+        }
+
+        /// <summary>1px separator under the strip so it reads as a distinct top row.</summary>
+        private void PaintStripDivider()
+        {
+            using (var pen = new Pen(StripDivider))
+            {
+                using (var g = CreateGraphics())
+                {
+                    g.DrawLine(pen, 0, TitleBarHeight, ClientSize.Width, TitleBarHeight);
+                }
+            }
         }
 
         private static Button MakeButton(string text, EventHandler onClick)
@@ -296,22 +383,78 @@ namespace DSHWeb
 
         private void LayoutButtons()
         {
-            int cy = ClientSize.Height / 2 + 26;
-            int cx = ClientSize.Width / 2;
+            // Center within the fill area (below the custom title strip).
+            Rectangle area = _status.Bounds;
+            int cy = area.Top + area.Height / 2 + 26;
+            int cx = area.Left + area.Width / 2;
             _btnRetry.Location = new Point(cx - 236, cy);
             _btnRestart.Location = new Point(cx - 118, cy);
             _btnExit.Location = new Point(cx, cy);
+        }
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            // Rounded corners (Win11) for the frameless window.
+            try
+            {
+                int cornerPref = 2; // DWMWA_WINDOW_CORNER_PREFERENCE = 33, DWMWCP_ROUND = 2
+                DwmSetWindowAttribute(Handle, 33, ref cornerPref, sizeof(int));
+            }
+            catch { }
         }
 
         protected override void OnResize(EventArgs e)
         {
             base.OnResize(e);
             // OnResize can fire during construction before controls exist.
+            if (_btnMin != null) LayoutTitleButtons(46, TitleBarHeight);
+            if (_btnMax != null)
+            {
+                _btnMax.Text = WindowState == FormWindowState.Maximized ? "❐" : "□";
+            }
             if (_btnRetry != null && _btnRetry.Visible) LayoutButtons();
             if (_tray != null && WindowState == FormWindowState.Minimized)
             {
                 Hide();
             }
+        }
+
+        /// <summary>Frameless window: drag from the strip, resize at the edges.</summary>
+        protected override void WndProc(ref Message m)
+        {
+            if (m.Msg == WM_NCHITTEST)
+            {
+                int x = (short)(m.LParam.ToInt32() & 0xFFFF);
+                int y = (short)((m.LParam.ToInt32() >> 16) & 0xFFFF);
+                Point p = PointToClient(new Point(x, y));
+
+                if (_btnMin != null && _btnMin.Bounds.Contains(p)) { m.Result = (IntPtr)HTCLIENT; return; }
+                if (_btnMax != null && _btnMax.Bounds.Contains(p)) { m.Result = (IntPtr)HTCLIENT; return; }
+                if (_btnClose != null && _btnClose.Bounds.Contains(p)) { m.Result = (IntPtr)HTCLIENT; return; }
+
+                if (WindowState != FormWindowState.Maximized)
+                {
+                    bool l = p.X <= ResizeEdge, r = p.X >= ClientSize.Width - ResizeEdge;
+                    bool t = p.Y <= ResizeEdge, b = p.Y >= ClientSize.Height - ResizeEdge;
+                    if (t && l) m.Result = (IntPtr)HTTOPLEFT;
+                    else if (t && r) m.Result = (IntPtr)HTTOPRIGHT;
+                    else if (b && l) m.Result = (IntPtr)HTBOTTOMLEFT;
+                    else if (b && r) m.Result = (IntPtr)HTBOTTOMRIGHT;
+                    else if (t) m.Result = (IntPtr)HTTOP;
+                    else if (b) m.Result = (IntPtr)HTBOTTOM;
+                    else if (l) m.Result = (IntPtr)HTLEFT;
+                    else if (r) m.Result = (IntPtr)HTRIGHT;
+                    else if (p.Y <= TitleBarHeight) m.Result = (IntPtr)HTCAPTION;
+                    else m.Result = (IntPtr)HTCLIENT;
+                }
+                else
+                {
+                    m.Result = p.Y <= TitleBarHeight ? (IntPtr)HTCAPTION : (IntPtr)HTCLIENT;
+                }
+                return;
+            }
+            base.WndProc(ref m);
         }
 
         private void OnFormClosing(object sender, FormClosingEventArgs e)
