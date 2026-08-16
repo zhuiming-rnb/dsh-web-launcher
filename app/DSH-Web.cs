@@ -347,14 +347,12 @@ namespace DSHWeb
             base.OnResize(e);
             // OnResize can fire during construction before controls exist.
             if (_btnRetry != null && _btnRetry.Visible) LayoutButtons();
-            if (_tray != null && WindowState == FormWindowState.Minimized)
-            {
-                Hide();
-            }
+            // Minimize keeps a normal taskbar entry; only Close hides to tray.
         }
 
         private void OnFormClosing(object sender, FormClosingEventArgs e)
         {
+            DshPaths.Log("FormClosing: reason=" + e.CloseReason + " quitting=" + _quitting);
             SaveWindowState();
             if (_quitting
                 || e.CloseReason == CloseReason.WindowsShutDown
@@ -367,6 +365,7 @@ namespace DSHWeb
             // Close hides to tray (the detached dsh server keeps running).
             e.Cancel = true;
             Hide();
+            DshPaths.Log("FormClosing: cancelled, hidden to tray");
         }
 
         private void SetupTray()
