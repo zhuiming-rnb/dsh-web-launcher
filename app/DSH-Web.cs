@@ -31,6 +31,16 @@ namespace DSHWeb
         private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
         [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter,
+            int x, int y, int cx, int cy, uint uFlags);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern uint GetCurrentThreadId();
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
         private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
 
         [System.Runtime.InteropServices.DllImport("user32.dll")]
@@ -38,6 +48,9 @@ namespace DSHWeb
 
         [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
         private static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder lpClassName, int nMaxCount);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool IsWindowVisible(IntPtr hWnd);
 
         private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
 
@@ -77,16 +90,36 @@ namespace DSHWeb
                 if (hwnd != IntPtr.Zero)
                 {
                     ShowWindow(hwnd, 9); // SW_RESTORE: show if hidden, restore if minimized
-                    try { SetForegroundWindow(hwnd); } catch { }
+                    // Bring to the top of the z-order without activating - works
+                    // even when another window (e.g. the browser) is foreground,
+                    // which would otherwise block SetForegroundWindow.
+                    SetWindowPos(hwnd, new IntPtr(-1), 0, 0, 0, 0,
+                        0x0001 | 0x0002 | 0x0010); // NOSIZE | NOMOVE | NOACTIVATE
+                    // Attach input queues so SetForegroundWindow is not blocked
+                    // by the foreground lock (background process rule).
+                    try
+                    {
+                        uint targetThread;
+                        GetWindowThreadProcessId(hwnd, out targetThread);
+                        uint currentThread = GetCurrentThreadId();
+                        if (AttachThreadInput(currentThread, targetThread, true))
+                        {
+                            SetForegroundWindow(hwnd);
+                            AttachThreadInput(currentThread, targetThread, false);
+                        }
+                    }
+                    catch { }
                     break;
                 }
             }
         }
 
-        /// <summary>Find the running instance's main WinForms window (even if hidden).</summary>
+        /// <summary>Find the running instance's main WinForms window, preferring
+        /// the visible one (the process may also own hidden helper windows).</summary>
         private static IntPtr FindFirstTopWindow(int pid)
         {
             IntPtr found = IntPtr.Zero;
+            IntPtr visible = IntPtr.Zero;
             EnumWindows(delegate(IntPtr hWnd, IntPtr lParam)
             {
                 uint windowPid;
@@ -97,13 +130,17 @@ namespace DSHWeb
                     GetClassName(hWnd, sb, 256);
                     if (sb.ToString().StartsWith("WindowsForms10.Window", StringComparison.Ordinal))
                     {
-                        found = hWnd;
-                        return false; // stop enumerating
+                        if (found == IntPtr.Zero) found = hWnd;
+                        if (IsWindowVisible(hWnd))
+                        {
+                            visible = hWnd;
+                            return false; // prefer the visible main window
+                        }
                     }
                 }
                 return true;
             }, IntPtr.Zero);
-            return found;
+            return visible != IntPtr.Zero ? visible : found;
         }
     }
 
